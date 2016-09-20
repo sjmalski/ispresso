@@ -55,15 +55,25 @@ gpio_btn_heat_led = 8
 gpio_btn_heat_sig = 7
 gpio_btn_pump_led = 10
 gpio_btn_pump_sig = 9
+gpio_btn_brew_pump_sig=5
+gpio_btn_steam_pump_sig=6
+gpio_btn_stean_switch_sig=13
+gpio_btn_pwr_switch_sig=19
+
 
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM) 
 GPIO.setup(gpio_btn_heat_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
-GPIO.setup(gpio_btn_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
+GPIO.setup(gpio_btn_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+GPIO.setup(gpio_btn_brew_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
+GPIO.setup(gpio_btn_steam_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+GPIO.setup(gpio_btn_steam_switch_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
+GPIO.setup(gpio_btn_pwr_switch_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
 GPIO.setup(gpio_heat, GPIO.OUT) 
 GPIO.setup(gpio_pump, GPIO.OUT) 
 GPIO.setup(gpio_btn_heat_led, GPIO.OUT)
 GPIO.setup(gpio_btn_pump_led, GPIO.OUT)
+
 
 def logger_init():
 
@@ -109,6 +119,10 @@ class mem:  # global class
     wait_time = 2
     brew_time = 25
     one_wire = None
+    flag_brewSwitch_on = False
+    flag_steamSwitch_on = False
+    flag_steam_mode = False
+    
 
 class globalvars(object):
 
@@ -291,6 +305,24 @@ def lcdControlProc(lcd_child_conn):
                     logger.error("Trying to re-initialize the LCD by nulling it out and re-instantiating.  Couldln't pull it off :(")
                 continue
 
+def brewTimerProc():
+    p = current_process()
+    logger = logging.getLogger("ispresso").getChild("brewTimerProc")
+    logger.info('Starting:' + p.name + ":" + str(p.pid))
+
+    counter = 0
+    start_time = time.time()
+
+    while ((counter < duration) & mem.flag_brewSwitch_on) :  # might not need the check for flag_pump_on here, as its above
+        time.sleep(0.1)
+    
+        if (time.time() - start_time) >= counter:
+            counter = counter + 1
+            message = 'brewing ' + str(duration - counter) + 's'
+            mem.lcd_connection.send([None, message, 0])
+            logger.debug(message)
+
+        
 
 def brewControlProc(brew_child_conn):
     p = current_process()
@@ -450,7 +482,7 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, k_para
                 temp_C_str = "%3.2f" % temp_C
                 temp_F_str = "%3.2f" % temp_F
                 temp_F_pretty = "%3.0f" % temp_F
-                mem.lcd_connection.send(['Artisinally' + str(temp_F_pretty) + ' F', None, 0])
+                mem.lcd_connection.send(['Coffee!! ' + str(temp_F_pretty) + ' F', None, 0])
 
                 readytemp = True
             if readytemp == True:
@@ -492,11 +524,11 @@ class getstatus:
 
         if (statusQ.full()):  # remove old data
             for i in range(statusQ.qsize()):
-                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
-        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
+                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, stemp = web.ctx.globals.statusQ.get() 
+        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, stemp = web.ctx.globals.statusQ.get() 
 
         out = json.dumps({"temp" : temp, "elapsed" : elapsed, "mode" : mode, "cycle_time" : cycle_time, "duty_cycle" : duty_cycle,
-                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on})  
+                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on, "stemp" : stemp})  
         return out
 
     def POST(self):
@@ -506,11 +538,11 @@ class getstatus:
     def get_temp():
         if (statusQ.full()):  # remove old data
             for i in range(statusQ.qsize()):
-                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
-        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
+                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, stepm = web.ctx.globals.statusQ.get() 
+        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, stemp = web.ctx.globals.statusQ.get() 
 
         out = json.dumps({"temp" : temp, "elapsed" : elapsed, "mode" : mode, "cycle_time" : cycle_time, "duty_cycle" : duty_cycle,
-                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on})          
+                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on, "stemp" : stemp})          
 
         return out["temp"]
 
@@ -567,6 +599,9 @@ class settings:
             if datalistkey == "temp":
                 param.set_point = int(mydata[datalistkey])  
                 logger.debug("temp changed to " + str(mydata[datalistkey]))
+            if datalistkey == "stemp":
+                param.set_point = int(mydata[datalistkey])  
+                logger.debug("Steam temp changed to " + str(mydata[datalistkey]))
             if datalistkey == "brewSecs":
                 mem.brew_time = int(mydata[datalistkey])
                 logger.debug("brew secs changed")
@@ -589,7 +624,8 @@ class settings:
             param.set_point = my_settings["temp"]
             param.k_param = my_settings["p_value"]
             param.i_param = my_settings["i_value"]
-            param.d_param = my_settings["d_value"]            
+            param.d_param = my_settings["d_value"]
+            param.stemp = my_settings["stemp"]
     
     @staticmethod
     def save():
@@ -602,6 +638,7 @@ class settings:
             my_settings['p_value'] = param.k_param
             my_settings['i_value'] = param.i_param
             my_settings['d_value'] = param.d_param
+            my_settings['stemp'] = param.stemp
         logger.debug("About to save settings = " + str(my_settings))
         with open("settings.json", "wb") as output_file:
             json.dump(my_settings, output_file)
@@ -905,7 +942,24 @@ def catchButton(btn):  # GPIO
             logger.debug("catchButton:  telling Brew Proc (toggle)")
             time_stamp = time.time()
             brew_plan = [['Presoak', mem.presoak_time], ['Wait', mem.wait_time], ['Brew', mem.brew_time]]
-            mem.brew_connection.send([time_stamp, brew_plan])
+            mem.brew_connection.send([time_stamp, brew_plan]
+
+        elif btn == gpio_btn_brew_pump_sig:
+            logger.debug("catchButton: Brew pump switched")
+            time_stamp=time.time()
+
+        elif btn == gpio_btn_steam_pump_sig:
+            logger.debug("catchButton: steam pump switched")
+            time_stamp=time.time()
+
+        elif btn == gpio_btn_stean_switch_sig:
+            logger.debug("catchButton: steam/hot water switched")
+            time_stamp=time.time()
+
+        elif btn == gpio_btn_pwr_switch_sig:
+            logger.debug("catchButton: power switched")
+            time_stamp=time.time()
+            
 
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -965,12 +1019,21 @@ if __name__ == '__main__':
 
         brew_parent_conn, brew_child_conn = Pipe()
         mem.brew_connection = brew_parent_conn
+
+        brewTimer_parent_conn, brewTimer_child_conn = Pipe()
+        mem.brewTimer_connection = brewTimer_parent_conn
         
         global_vars = globalvars()
         
         GPIO.add_event_detect(gpio_btn_heat_sig, GPIO.RISING, callback=catchButton, bouncetime=250)  
         GPIO.add_event_detect(gpio_btn_pump_sig, GPIO.RISING, callback=catchButton, bouncetime=250)  # was RISING, at one point HIGH. who knows
+        GPIO.add_event_detect(gpio_btn_brew_pump_sig, GPIO.RISING, callback=catchButton, bouncetime=250)
+        GPIO.add_event_detect(gpio_btn_steam_pump_sig, GPIO.RISING, callback=catchButton, bouncetime=250)
+        GPIO.add_event_detect(gpio_btn_stean_switch_sig, GPIO.RISING, callback=catchButton, bouncetime=250)
 
+
+            
+        
         mem.heat_connection = parent_conn
         lcdproc = Process(name="lcdControlProc", target=lcdControlProc, args=(lcd_child_conn,))
         lcdproc.start()
@@ -978,6 +1041,9 @@ if __name__ == '__main__':
         brewproc = Process(name="brewControlProc", target=brewControlProc, args=(brew_child_conn,))
         brewproc.start()
 
+        brewTimerproc = Process(name="brewTimerProc", target=brewTimerProc, args=(brewTimer_child_conn,))
+        brewproc.start()
+                                     
         cloudproc = Process(name="cloudControlProc", target=cloudControlProc, args=(global_vars, brew_parent_conn,))
         cloudproc.start()
 
