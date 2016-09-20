@@ -57,7 +57,7 @@ gpio_btn_pump_led = 10
 gpio_btn_pump_sig = 9
 gpio_btn_brew_pump_sig=5
 gpio_btn_steam_pump_sig=6
-gpio_btn_stean_switch_sig=13
+gpio_btn_steam_switch_sig=13
 gpio_btn_pwr_switch_sig=19
 
 
@@ -146,7 +146,8 @@ class param:
     set_point = 211
     k_param = 6  # was 6
     i_param = 60  # was 120
-    d_param = 15  # was 5
+    d_param = 15# was 5
+    set_point_steam = 250
 
 def add_global_hook(parent_conn, statusQ):
 
@@ -167,6 +168,7 @@ class advanced:
         self.k_param = param.k_param
         self.i_param = param.i_param
         self.d_param = param.d_param
+        self.set_point_steam = param.set_point_steam
         
     def GET(self):
        
@@ -446,7 +448,7 @@ def cloudControlProc(global_vars, brew_conn):
                 logger.error(''.join('!! ' + line for line in traceback.format_exception(exc_type, exc_value, exc_traceback)))
 
 
-def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, statusQ, conn):  
+def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param, statusQ, conn):  
     p = current_process()
     logger = logging.getLogger('ispresso').getChild("tempControlProc")
     logger.info('Starting:' + p.name + ":" + str(p.pid))
@@ -524,11 +526,11 @@ class getstatus:
 
         if (statusQ.full()):  # remove old data
             for i in range(statusQ.qsize()):
-                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, stemp = web.ctx.globals.statusQ.get() 
-        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, stemp = web.ctx.globals.statusQ.get() 
+                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
+        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
 
         out = json.dumps({"temp" : temp, "elapsed" : elapsed, "mode" : mode, "cycle_time" : cycle_time, "duty_cycle" : duty_cycle,
-                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on, "stemp" : stemp})  
+                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on})  
         return out
 
     def POST(self):
@@ -538,11 +540,11 @@ class getstatus:
     def get_temp():
         if (statusQ.full()):  # remove old data
             for i in range(statusQ.qsize()):
-                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, stepm = web.ctx.globals.statusQ.get() 
-        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param, stemp = web.ctx.globals.statusQ.get() 
+                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
+        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
 
         out = json.dumps({"temp" : temp, "elapsed" : elapsed, "mode" : mode, "cycle_time" : cycle_time, "duty_cycle" : duty_cycle,
-                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on, "stemp" : stemp})          
+                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on})          
 
         return out["temp"]
 
@@ -599,9 +601,7 @@ class settings:
             if datalistkey == "temp":
                 param.set_point = int(mydata[datalistkey])  
                 logger.debug("temp changed to " + str(mydata[datalistkey]))
-            if datalistkey == "stemp":
-                param.set_point = int(mydata[datalistkey])  
-                logger.debug("Steam temp changed to " + str(mydata[datalistkey]))
+
             if datalistkey == "brewSecs":
                 mem.brew_time = int(mydata[datalistkey])
                 logger.debug("brew secs changed")
@@ -611,6 +611,9 @@ class settings:
             if datalistkey == "waitSecs":
                 mem.wait_time = int(mydata[datalistkey])
                 logger.debug("wait secs changed")
+            if datalistkey == "stemp":
+                param.set_point_steam = int(mydata[datalistkey])  
+                logger.debug("Steam temp changed to " + str(mydata[datalistkey]))
         logger.debug("Settings updated:  " + str(mydata))
         settings.save()
 
@@ -625,7 +628,7 @@ class settings:
             param.k_param = my_settings["p_value"]
             param.i_param = my_settings["i_value"]
             param.d_param = my_settings["d_value"]
-            param.stemp = my_settings["stemp"]
+            #param.set_point_steam = my_settings["stemp"]
     
     @staticmethod
     def save():
@@ -638,7 +641,7 @@ class settings:
             my_settings['p_value'] = param.k_param
             my_settings['i_value'] = param.i_param
             my_settings['d_value'] = param.d_param
-            my_settings['stemp'] = param.stemp
+            #my_settings['stemp'] = param.set_point_steam
         logger.debug("About to save settings = " + str(my_settings))
         with open("settings.json", "wb") as output_file:
             json.dump(my_settings, output_file)
@@ -942,8 +945,8 @@ def catchButton(btn):  # GPIO
             logger.debug("catchButton:  telling Brew Proc (toggle)")
             time_stamp = time.time()
             brew_plan = [['Presoak', mem.presoak_time], ['Wait', mem.wait_time], ['Brew', mem.brew_time]]
-            mem.brew_connection.send([time_stamp, brew_plan]
-
+            mem.brew_connection.send([time_stamp, brew_plan])
+            
         elif btn == gpio_btn_brew_pump_sig:
             logger.debug("catchButton: Brew pump switched")
             time_stamp=time.time()
@@ -952,7 +955,7 @@ def catchButton(btn):  # GPIO
             logger.debug("catchButton: steam pump switched")
             time_stamp=time.time()
 
-        elif btn == gpio_btn_stean_switch_sig:
+        elif btn == gpio_btn_steam_switch_sig:
             logger.debug("catchButton: steam/hot water switched")
             time_stamp=time.time()
 
@@ -1029,7 +1032,7 @@ if __name__ == '__main__':
         GPIO.add_event_detect(gpio_btn_pump_sig, GPIO.RISING, callback=catchButton, bouncetime=250)  # was RISING, at one point HIGH. who knows
         GPIO.add_event_detect(gpio_btn_brew_pump_sig, GPIO.RISING, callback=catchButton, bouncetime=250)
         GPIO.add_event_detect(gpio_btn_steam_pump_sig, GPIO.RISING, callback=catchButton, bouncetime=250)
-        GPIO.add_event_detect(gpio_btn_stean_switch_sig, GPIO.RISING, callback=catchButton, bouncetime=250)
+        GPIO.add_event_detect(gpio_btn_steam_switch_sig, GPIO.RISING, callback=catchButton, bouncetime=250)
 
 
             
@@ -1042,13 +1045,13 @@ if __name__ == '__main__':
         brewproc.start()
 
         brewTimerproc = Process(name="brewTimerProc", target=brewTimerProc, args=(brewTimer_child_conn,))
-        brewproc.start()
+        #brewTimerproc.start()
                                      
         cloudproc = Process(name="cloudControlProc", target=cloudControlProc, args=(global_vars, brew_parent_conn,))
         cloudproc.start()
 
-        p = Process(name="tempControlProc", target=tempControlProc, args=(global_vars, param.mode, param.cycle_time, param.duty_cycle, \
-                                            param.set_point, param.k_param, param.i_param, param.d_param, statusQ, child_conn))
+        p = Process(name="tempControlProc", target=tempControlProc, args=(global_vars, param.mode, param.cycle_time, param.duty_cycle, 
+                                            param.set_point, param.k_param, param.i_param, param.d_param, param.set_point_steam, statusQ, child_conn))
         p.start()
 
         app.add_processor(add_global_hook(parent_conn, statusQ))
