@@ -307,24 +307,43 @@ def lcdControlProc(lcd_child_conn):
                     logger.error("Trying to re-initialize the LCD by nulling it out and re-instantiating.  Couldln't pull it off :(")
                 continue
 
-def brewTimerProc():
+def brewTimerProc(brewTimer_child_conn):
     p = current_process()
-    logger = logging.getLogger("ispresso").getChild("brewTimerProc")
     logger.info('Starting:' + p.name + ":" + str(p.pid))
 
-    counter = 0
-    start_time = time.time()
+    try:
+        mem.flag_brewSwitch_on = False
+        button_bounce_threshold_secs = 0.5
 
-    while ((counter < duration) & mem.flag_brewSwitch_on) :  # might not need the check for flag_pump_on here, as its above
-        time.sleep(0.1)
-    
-        if (time.time() - start_time) >= counter:
-            counter = counter + 1
-            message = 'brewing ' + str(duration - counter) + 's'
-            mem.lcd_connection.send([None, message, 0])
-            logger.debug(message)
+        while(True):
+            time_button_pushed = brewTimer_child_conn.recv()  # BLOCKS until something shows up
+            mem.flag_brewSwitch_on = True
 
-        
+            brew_time = 0
+            while (mem.flag_brewSwitch_on) :  # might not need the check for flag_pump_on here, as its above
+                time.sleep(0.1)
+                brew_time= time.time()-time_button_pushed
+                message = ("Brewing %.2f s" % brew_time)
+                mem.lcd_connection.send([None, message, 0])
+                if brewTimer_child_conn.poll():  # mem.brew_connection.poll() returns TRUE or FALSE immediately and does NOT block
+                    
+                    time_button_pushed_again = brewTimer_child_conn.recv()  # get item off the list, check how long since time_button_pushed, against button_bounce_threshold_secs.  If too short, clean up and exit this loop
+                    if time_button_pushed_again - time_button_pushed > button_bounce_threshold_secs:
+                        mem.lcd_connection.send([None, "", 0])
+                        mem.flag_brewSwitch_on = False
+                        message = ("Brewed %.2f s" % brew_time)
+                        mem.lcd_connection.send([None, message, 3])
+                        logger.debug(message)
+                        mem.lcd_connection.send([None,"",0])
+                        #break
+    except:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        logger.error(''.join('!! ' + line for line in traceback.format_exception(exc_type, exc_value, exc_traceback)))
+    finally:
+        logger.info("brewed for " + str(brew_time))
+        #GPIO.output(gpio_pump, GPIO.LOW)
+        #GPIO.output(gpio_btn_pump_led, GPIO.LOW)
+            
 
 def brewControlProc(brew_child_conn):
     p = current_process()
@@ -950,7 +969,8 @@ def catchButton(btn):  # GPIO
         elif btn == gpio_btn_brew_pump_sig:
             logger.debug("catchButton: Brew pump switched")
             time_stamp=time.time()
-
+            mem.brewTimer_connection.send(time_stamp)
+            
         elif btn == gpio_btn_steam_pump_sig:
             logger.debug("catchButton: steam pump switched")
             time_stamp=time.time()
@@ -1045,10 +1065,10 @@ if __name__ == '__main__':
         brewproc.start()
 
         brewTimerproc = Process(name="brewTimerProc", target=brewTimerProc, args=(brewTimer_child_conn,))
-        #brewTimerproc.start()
+        brewTimerproc.start()
                                      
         cloudproc = Process(name="cloudControlProc", target=cloudControlProc, args=(global_vars, brew_parent_conn,))
-        cloudproc.start()
+        #cloudproc.start()
 
         p = Process(name="tempControlProc", target=tempControlProc, args=(global_vars, param.mode, param.cycle_time, param.duty_cycle, 
                                             param.set_point, param.k_param, param.i_param, param.d_param, param.set_point_steam, statusQ, child_conn))
