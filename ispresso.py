@@ -503,7 +503,7 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                 temp_C_str = "%3.2f" % temp_C
                 temp_F_str = "%3.2f" % temp_F
                 temp_F_pretty = "%3.0f" % temp_F
-                mem.lcd_connection.send(['Coffee!! ' + str(temp_F_pretty) + ' F', None, 0])
+                mem.lcd_connection.send(['sry Jteeen ' + str(temp_F_pretty) + ' F', "not working :(", 0])
 
                 readytemp = True
             if readytemp == True:
@@ -1062,13 +1062,13 @@ if __name__ == '__main__':
         lcdproc.start()
         
         brewproc = Process(name="brewControlProc", target=brewControlProc, args=(brew_child_conn,))
-        brewproc.start()
+        #brewproc.start()
 
         brewTimerproc = Process(name="brewTimerProc", target=brewTimerProc, args=(brewTimer_child_conn,))
         brewTimerproc.start()
                                      
         cloudproc = Process(name="cloudControlProc", target=cloudControlProc, args=(global_vars, brew_parent_conn,))
-        #cloudproc.start()
+        cloudproc.start()
 
         p = Process(name="tempControlProc", target=tempControlProc, args=(global_vars, param.mode, param.cycle_time, param.duty_cycle, 
                                             param.set_point, param.k_param, param.i_param, param.d_param, param.set_point_steam, statusQ, child_conn))
