@@ -143,11 +143,11 @@ class param:
     mode = "off"
     cycle_time = 2.0
     duty_cycle = 0.0
-    set_point = 211
-    k_param = 6  # was 6
-    i_param = 60  # was 120
-    d_param = 15# was 5
-    set_point_steam = 250
+    set_point = 170
+    k_param = 5.8  # was 6
+    i_param = 24  # was 120
+    d_param = 6 # was 5
+    set_point_steam = 180
 
 def add_global_hook(parent_conn, statusQ):
 
@@ -226,6 +226,7 @@ def gettempProc(global_vars, conn):
 
 def getonofftime(cycle_time, duty_cycle):
     duty = duty_cycle / 100.0
+    logger.debug("duty="+str(duty)+ " Duty_cycle="+str(duty_cycle))
     on_time = cycle_time * (duty)
     off_time = cycle_time * (1.0 - duty)   
     return [on_time, off_time]
@@ -506,9 +507,18 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                 mem.lcd_connection.send(['sry Jteeen ' + str(temp_F_pretty) + ' F', "not working :(", 0])
 
                 readytemp = True
+                logger.debug("Temp F: "+ temp_F_pretty)
+                if temp_F > 260: #over temperature sensing
+                    readytemp = False
+                    duty_cycle = 0
+                    mode = "off"
+                    parent_conn_heat.send([cycle_time, duty_cycle])
+                    GPIO.output(gpio_btn_heat_led, GPIO.LOW)
+                    logger.error("Temperature exceeding sensor range.  Shut off")
             if readytemp == True:
                 if mode == "auto":
                     duty_cycle = pid.calcPID_reg4(temp_F, set_point, True)
+                    #logger.debug("PID set "+str(duty_cycle) + "temp F "+ temp_F_str + "set Point " + str(set_point))
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     GPIO.output(gpio_btn_heat_led, GPIO.HIGH) 
                 elif mode == "off":
@@ -922,7 +932,7 @@ def tempdata():
         try:
             temp_C = float(result_list[-1]) / 1000  # temp in Celcius
         except ValueError:  # probably means we can't read the 1-wire sensor
-            # logger.warn('Could not get a value from 1-wire connector.  Using ' + one_wire )
+            logger.warn('Could not get a value from 1-wire connector.  Using ' + one_wire )
             temp_C = 0
         return temp_C
 
@@ -1057,18 +1067,18 @@ if __name__ == '__main__':
 
             
         
-        mem.heat_connection = parent_conn
+        mem.heat_connection = parent_conn        
         lcdproc = Process(name="lcdControlProc", target=lcdControlProc, args=(lcd_child_conn,))
         lcdproc.start()
         
         brewproc = Process(name="brewControlProc", target=brewControlProc, args=(brew_child_conn,))
-        #brewproc.start()
+        brewproc.start()
 
         brewTimerproc = Process(name="brewTimerProc", target=brewTimerProc, args=(brewTimer_child_conn,))
         brewTimerproc.start()
                                      
         cloudproc = Process(name="cloudControlProc", target=cloudControlProc, args=(global_vars, brew_parent_conn,))
-        cloudproc.start()
+        #cloudproc.start()
 
         p = Process(name="tempControlProc", target=tempControlProc, args=(global_vars, param.mode, param.cycle_time, param.duty_cycle, 
                                             param.set_point, param.k_param, param.i_param, param.d_param, param.set_point_steam, statusQ, child_conn))
