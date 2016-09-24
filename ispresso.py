@@ -141,7 +141,7 @@ class globalvars(object):
 
 class param:
     mode = "off"
-    cycle_time = 2.0
+    cycle_time = 0.50
     duty_cycle = 0.0
     set_point = 170
     k_param = 5.8  # was 6
@@ -226,7 +226,7 @@ def gettempProc(global_vars, conn):
 
 def getonofftime(cycle_time, duty_cycle):
     duty = duty_cycle / 100.0
-    logger.debug("duty="+str(duty)+ " Duty_cycle="+str(duty_cycle))
+    #logger.debug("duty="+str(duty)+ " Duty_cycle="+str(duty_cycle))
     on_time = cycle_time * (duty)
     off_time = cycle_time * (1.0 - duty)   
     return [on_time, off_time]
@@ -507,18 +507,19 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                 mem.lcd_connection.send(['sry Jteeen ' + str(temp_F_pretty) + ' F', "not working :(", 0])
 
                 readytemp = True
-                logger.debug("Temp F: "+ temp_F_pretty)
+                #logger.debug("Temp F: "+ temp_F_pretty)
                 if temp_F > 260: #over temperature sensing
                     readytemp = False
                     duty_cycle = 0
                     mode = "off"
+                    tellHeatProc(mode)
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     GPIO.output(gpio_btn_heat_led, GPIO.LOW)
                     logger.error("Temperature exceeding sensor range.  Shut off")
             if readytemp == True:
                 if mode == "auto":
                     duty_cycle = pid.calcPID_reg4(temp_F, set_point, True)
-                    #logger.debug("PID set "+str(duty_cycle) + "temp F "+ temp_F_str + "set Point " + str(set_point))
+                    logger.debug("PID set "+str(duty_cycle) + "temp "+ temp_F_pretty + "set Point " + str(set_point))
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     GPIO.output(gpio_btn_heat_led, GPIO.HIGH) 
                 elif mode == "off":
