@@ -1,4 +1,4 @@
-$def with (mode, set_point, duty_cycle, cycle_time, k_param, i_param, d_param)
+$def with (mode, set_point,set_point_steam, duty_cycle, cycle_time, k_param, i_param, d_param)
 
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
 "http://www.w3.org/TR/html4/loose.dtd">
@@ -173,6 +173,7 @@ $def with (mode, set_point, duty_cycle, cycle_time, k_param, i_param, d_param)
 		            	     jQuery('#tempResponse_C').html(temp_C)
 		            	     jQuery('#modeResponse').html(data.mode);
 		            	     jQuery('#setpointResponse').html(data.set_point);
+                                     jQuery('#setpointsteamResponse').html(data.set_point_steam);
 		            	     jQuery('#dutycycleResponse').html(parseFloat(data.duty_cycle).toFixed(2));
 		            	     dutyCycle = data.duty_cycle;
 		            	     jQuery('#cycletimeResponse').html(data.cycle_time);
@@ -437,6 +438,10 @@ $def with (mode, set_point, duty_cycle, cycle_time, k_param, i_param, d_param)
 	    		    <td id="d_paramResponse">0</td>
 	    		    <td>secs</td>
 	    		</tr>
+		        <tr>
+		    		<td align=right>Set Point Steam: </td>
+		    		<td id="setpointsteamResponse" align=right>0</td>
+		    		<td>&#176F</td> 
 	        </table>
         </div>   
         <p align=center style="font-size: large;text-decoration: underline;">Command</p>
@@ -492,6 +497,13 @@ $def with (mode, set_point, duty_cycle, cycle_time, k_param, i_param, d_param)
 	    				</td>
 	    				<td>secs</td>
    	    			</tr>
+				<tr>
+		    			<td align=right>Set Point: </td>
+		    			<td>
+		    				<input type="text" name="setpointsteam"  maxlength = "4" size ="4" value=$set_point_steam style="text-align: right;"/> 
+		    			</td>
+		    			<td>&#176F</td>
+				</tr>
 	    		</table>
 	    		<br>
 	    		<a href="#" data-role="button" id="sendcommand" type="submit" value="SubmitCommand" align=center data=theme="a" >Send Command</button> 

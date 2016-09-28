@@ -141,13 +141,14 @@ class globalvars(object):
 
 class param:
     mode = "off"
-    cycle_time = 0.50
+    cycle_time = 1.0
     duty_cycle = 0.0
-    set_point = 170
+    set_point = 198
+    set_point_steam = 180
     k_param = 5.8  # was 6
     i_param = 24  # was 120
     d_param = 6 # was 5
-    set_point_steam = 180
+
 
 def add_global_hook(parent_conn, statusQ):
 
@@ -165,14 +166,15 @@ class advanced:
         self.cycle_time = param.cycle_time
         self.duty_cycle = param.duty_cycle
         self.set_point = param.set_point
+        self.set_point_steam = param.set_point_steam
         self.k_param = param.k_param
         self.i_param = param.i_param
         self.d_param = param.d_param
-        self.set_point_steam = param.set_point_steam
+        
         
     def GET(self):
        
-        return render.advanced(self.mode, self.set_point, self.duty_cycle, self.cycle_time, self.k_param, self.i_param, self.d_param)
+        return render.advanced(self.mode, self.set_point, self.set_point_steam, self.duty_cycle, self.cycle_time, self.k_param, self.i_param, self.d_param)
         
     def POST(self):
         data = web.data()
@@ -183,6 +185,8 @@ class advanced:
                 self.mode = datalistkey[1]
             if datalistkey[0] == "setpoint":
                 self.set_point = float(datalistkey[1])
+            if datalistkey[0] == "set_point_steam":
+                self.set_point_steam = float(datalistkey[1])
             if datalistkey[0] == "dutycycle":
                 self.duty_cycle = float(datalistkey[1])
             if datalistkey[0] == "cycletime":
@@ -198,13 +202,14 @@ class advanced:
         param.cycle_time = self.cycle_time
         param.duty_cycle = self.duty_cycle 
         param.set_point = self.set_point
+        param.set_point_steam = self.set_point_steam
         param.k_param = self.k_param
         param.i_param = self.i_param 
         param.d_param = self.d_param
         settings.save()
 
-        web.ctx.globals.parent_conn.send([self.mode, self.cycle_time, self.duty_cycle, self.set_point, self.k_param, self.i_param, self.d_param, False])  
-
+        web.ctx.globals.parent_conn.send([self.mode, self.cycle_time, self.duty_cycle, self.set_point, self.set_point_steam,  self.k_param, self.i_param, self.d_param, False])  
+        #mono and sensor for single color
 def gettempProc(global_vars, conn):
     p = current_process()
     logger = logging.getLogger('ispresso').getChild("getTempProc")
@@ -213,7 +218,7 @@ def gettempProc(global_vars, conn):
     try:
         while (True):
             t = time.time()
-            time.sleep(0.5)  # .1+~.83 = ~1.33 seconds
+            time.sleep(.5)  # .1+~.83 = ~1.33 seconds
             num = tempdata()
             elapsed = "%.2f" % (time.time() - t)
             conn.send([num, elapsed])
@@ -239,7 +244,7 @@ def tellHeatProc(heat_mode=None, flush_cache=None):
     if heat_mode is not None:
         param.mode = heat_mode
 
-    mem.heat_connection.send([param.mode, param.cycle_time, param.duty_cycle, param.set_point, param.k_param, param.i_param, param.d_param, flush_cache])
+    mem.heat_connection.send([param.mode, param.cycle_time, param.duty_cycle, param.set_point, param.set_point_steam, param.k_param, param.i_param, param.d_param, flush_cache])
         
 def heatProc(cycle_time, duty_cycle, conn):
     p = current_process()
@@ -483,13 +488,14 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
         pheat.daemon = True
         pheat.start() 
 
-        pid = PIDController.pidpy(cycle_time, k_param, i_param, d_param)  # init pid
+        #pid = PIDController.pidpy(cycle_time, k_param, i_param, d_param)  # init pid
         flush_cache = False
         last_temp_C = 0
         
         while (True):
             time.sleep(0.1)
-
+            pid = PIDController.pidpy(cycle_time, k_param, i_param, d_param)  # init pid
+            #logger.debug("cycle time: " + str(cycle_time) + " k: "+str(k_param)+" i: "+str(i_param)+" d: "+ str(d_param))
             readytemp = False
             while parent_conn_temp.poll():
                 temp_C, elapsed = parent_conn_temp.recv()  # non blocking receive    
@@ -504,11 +510,11 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                 temp_C_str = "%3.2f" % temp_C
                 temp_F_str = "%3.2f" % temp_F
                 temp_F_pretty = "%3.0f" % temp_F
-                mem.lcd_connection.send(['sry Jteeen ' + str(temp_F_pretty) + ' F', "not working :(", 0])
+                mem.lcd_connection.send(['Probably ' + str(temp_F_pretty) + ' F', "at least I hope", 0])
 
                 readytemp = True
                 #logger.debug("Temp F: "+ temp_F_pretty)
-                if temp_F > 260: #over temperature sensing
+                if temp_F > 255: #over temperature sensing
                     readytemp = False
                     duty_cycle = 0
                     mode = "off"
@@ -516,10 +522,13 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     GPIO.output(gpio_btn_heat_led, GPIO.LOW)
                     logger.error("Temperature exceeding sensor range.  Shut off")
+                    if (not statusQ.full()):    
+                        statusQ.put([temp_F_str, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param])  # GET request
+
             if readytemp == True:
                 if mode == "auto":
                     duty_cycle = pid.calcPID_reg4(temp_F, set_point, True)
-                    logger.debug("PID set "+str(duty_cycle) + "temp "+ temp_F_pretty + "set Point " + str(set_point))
+                    #logger.debug("PID set "+str(duty_cycle) + "temp "+ temp_F_pretty + "set Point " + str(set_point))
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     GPIO.output(gpio_btn_heat_led, GPIO.HIGH) 
                 elif mode == "off":
@@ -527,14 +536,14 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     GPIO.output(gpio_btn_heat_led, GPIO.LOW)
                 if (not statusQ.full()):    
-                    statusQ.put([temp_F_str, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param])  # GET request
+                    statusQ.put([temp_F_str, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param])  # GET request
                 readytemp == False   
                 
             while parent_conn_heat.poll():  # non blocking receive
                 cycle_time, duty_cycle = parent_conn_heat.recv()
                      
             while conn.poll():  # POST settings
-                mode, cycle_time, duty_cycle_temp, set_point, k_param, i_param, d_param, flush_cache = conn.recv()
+                mode, cycle_time, duty_cycle_temp, set_point, set_point_steam, k_param, i_param, d_param, flush_cache = conn.recv()
             
             if flush_cache:
                 mem.cache_day = None  # this should force cache flush   
@@ -556,11 +565,11 @@ class getstatus:
 
         if (statusQ.full()):  # remove old data
             for i in range(statusQ.qsize()):
-                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
-        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
+                temp, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
+        temp, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
 
         out = json.dumps({"temp" : temp, "elapsed" : elapsed, "mode" : mode, "cycle_time" : cycle_time, "duty_cycle" : duty_cycle,
-                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on})  
+                     "set_point" : set_point, "set_point_steam" : set_point_steam, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on})  
         return out
 
     def POST(self):
@@ -570,11 +579,11 @@ class getstatus:
     def get_temp():
         if (statusQ.full()):  # remove old data
             for i in range(statusQ.qsize()):
-                temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
-        temp, elapsed, mode, cycle_time, duty_cycle, set_point, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
+                temp, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
+        temp, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param = web.ctx.globals.statusQ.get() 
 
         out = json.dumps({"temp" : temp, "elapsed" : elapsed, "mode" : mode, "cycle_time" : cycle_time, "duty_cycle" : duty_cycle,
-                     "set_point" : set_point, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on})          
+                     "set_point" : set_point, "set_point_steam" : set_point_steam, "k_param" : k_param, "i_param" : i_param, "d_param" : d_param, "pump" : mem.flag_pump_on})          
 
         return out["temp"]
 
@@ -655,10 +664,11 @@ class settings:
             mem.presoak_time = my_settings["soakSecs"]
             mem.wait_time = my_settings["waitSecs"]
             param.set_point = my_settings["temp"]
+            param.set_point_steam = my_settings["stemp"]
             param.k_param = my_settings["p_value"]
             param.i_param = my_settings["i_value"]
             param.d_param = my_settings["d_value"]
-            #param.set_point_steam = my_settings["stemp"]
+            
     
     @staticmethod
     def save():
@@ -668,10 +678,10 @@ class settings:
             my_settings['soakSecs'] = mem.presoak_time
             my_settings['waitSecs'] = mem.wait_time
             my_settings['temp'] = param.set_point
+            my_settings['stemp'] = param.set_point_steam
             my_settings['p_value'] = param.k_param
             my_settings['i_value'] = param.i_param
             my_settings['d_value'] = param.d_param
-            #my_settings['stemp'] = param.set_point_steam
         logger.debug("About to save settings = " + str(my_settings))
         with open("settings.json", "wb") as output_file:
             json.dump(my_settings, output_file)
@@ -1072,17 +1082,17 @@ if __name__ == '__main__':
         lcdproc = Process(name="lcdControlProc", target=lcdControlProc, args=(lcd_child_conn,))
         lcdproc.start()
         
-        brewproc = Process(name="brewControlProc", target=brewControlProc, args=(brew_child_conn,))
-        brewproc.start()
+        #brewproc = Process(name="brewControlProc", target=brewControlProc, args=(brew_child_conn,))
+        #brewproc.start()
 
         brewTimerproc = Process(name="brewTimerProc", target=brewTimerProc, args=(brewTimer_child_conn,))
         brewTimerproc.start()
                                      
-        cloudproc = Process(name="cloudControlProc", target=cloudControlProc, args=(global_vars, brew_parent_conn,))
+        #cloudproc = Process(name="cloudControlProc", target=cloudControlProc, args=(global_vars, brew_parent_conn,))
         #cloudproc.start()
 
         p = Process(name="tempControlProc", target=tempControlProc, args=(global_vars, param.mode, param.cycle_time, param.duty_cycle, 
-                                            param.set_point, param.k_param, param.i_param, param.d_param, param.set_point_steam, statusQ, child_conn))
+                                            param.set_point, param.set_point_steam, param.k_param, param.i_param, param.d_param, statusQ, child_conn))
         p.start()
 
         app.add_processor(add_global_hook(parent_conn, statusQ))
