@@ -65,10 +65,10 @@ GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM) 
 GPIO.setup(gpio_btn_heat_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
 GPIO.setup(gpio_btn_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-GPIO.setup(gpio_btn_brew_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
-GPIO.setup(gpio_btn_steam_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-GPIO.setup(gpio_btn_steam_switch_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
-GPIO.setup(gpio_btn_pwr_switch_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) 
+GPIO.setup(gpio_btn_brew_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) #, pull_up_down=GPIO.PUD_DOWN
+GPIO.setup(gpio_btn_steam_pump_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) #, pull_up_down=GPIO.PUD_DOWN
+GPIO.setup(gpio_btn_steam_switch_sig, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) #, pull_up_down=GPIO.PUD_DOWN
+GPIO.setup(gpio_btn_pwr_switch_sig, GPIO.IN, pull_up_down=GPIO.PUD_UP) #, pull_up_down=GPIO.PUD_DOWN
 GPIO.setup(gpio_heat, GPIO.OUT) 
 GPIO.setup(gpio_pump, GPIO.OUT) 
 GPIO.setup(gpio_btn_heat_led, GPIO.OUT)
@@ -142,7 +142,7 @@ class globalvars(object):
 class param:
     mode = "off"
     cycle_time = 1.0
-    duty_cycle = 100.0
+    duty_cycle = 0.0
     set_point = 198
     set_point_steam = 180
     k_param = 5.8  # was 6
@@ -322,11 +322,15 @@ def brewTimerProc(brewTimer_child_conn):
     try:
         mem.flag_brewSwitch_on = False
         button_bounce_threshold_secs = 0.5
-        heat_boost_time = 5
+        heat_boost_time = 3.5
+        rebound_protect_time = 10
 
         while(True):
             time_button_pushed = brewTimer_child_conn.recv()  # BLOCKS until something shows up
-            mem.flag_brewSwitch_on = True
+            time.sleep(button_bounce_threshold_secs)
+            if GPIO.input(gpio_btn_brew_pump_sig) == GPIO.LOW:
+                logger.debug("not a bounce, brew high")
+                mem.flag_brewSwitch_on = True
 
             brew_time = 0
             while (mem.flag_brewSwitch_on) :  # might not need the check for flag_pump_on here, as its above
@@ -337,7 +341,7 @@ def brewTimerProc(brewTimer_child_conn):
                 if brew_time < heat_boost_time:
                     duty_cycle=100
                     tellHeatProc("manual",None,duty_cycle)#turn heater on manual 100# duty cycle to help out the PID process
-                    
+                    mem.flag_pump_on=True
                     #logger.debug("boost time duty cycle" + str(param.duty_cycle))
                 else:
                     duty_cycle = 0
@@ -350,9 +354,13 @@ def brewTimerProc(brewTimer_child_conn):
                         mem.lcd_connection.send([None, "", 0])
                         mem.flag_brewSwitch_on = False
                         message = ("Brewed %.2f s" % brew_time)
-                        mem.lcd_connection.send([None, message, 3])
+                        mem.lcd_connection.send([None, message, 5])
                         logger.debug(message)
                         mem.lcd_connection.send([None,"",0])
+                        mem.flag_pump_on= False
+                        tellHeatProc("off")
+                        time.sleep(rebound_protect_time) #protect from rebound heating of empty heater
+                        tellHeatProc("auto")
                     else:
                         logger.debug("Brew Button Bounced")
                         #break
@@ -361,6 +369,7 @@ def brewTimerProc(brewTimer_child_conn):
         logger.error(''.join('!! ' + line for line in traceback.format_exception(exc_type, exc_value, exc_traceback)))
     finally:
         logger.info("brewed for " + str(brew_time))
+        mem.flag_pump_on=False
         #GPIO.output(gpio_pump, GPIO.LOW)
         #GPIO.output(gpio_btn_pump_led, GPIO.LOW)
             
@@ -507,7 +516,7 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
         last_temp_C = 0
         
         while (True):
-            #time.sleep(0.1)
+            time.sleep(0.1)
             #pid = PIDController.pidpy(cycle_time, k_param, i_param, d_param)  # init pid
             #logger.debug("cycle time: " + str(cycle_time) + " k: "+str(k_param)+" i: "+str(i_param)+" d: "+ str(d_param))
             readytemp = False
@@ -519,15 +528,15 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     last_temp_C = temp_C
                 else:
                     temp_C = last_temp_C    
-                
+
                 temp_F = (9.0 / 5.0) * temp_C + 32
                 temp_C_str = "%3.2f" % temp_C
                 temp_F_str = "%3.2f" % temp_F
                 temp_F_pretty = "%3.0f" % temp_F
                 mem.lcd_connection.send(['Probably ' + str(temp_F_pretty) + ' F', "at least I hope", 0])
-
                 readytemp = True
-                #logger.debug("Temp F: "+ temp_F_pretty)
+
+            #logger.debug("Temp F: "+ temp_F_pretty)
                 if temp_F > 255: #over temperature sensing
                     readytemp = False
                     duty_cycle = 0
@@ -539,20 +548,26 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     if (not statusQ.full()):    
                         statusQ.put([temp_F_str, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param])  # GET request
 
-                if temp_F < (set_point-20):  #use different PID parameters for turn-on
-                    logger.debug("going into heat up parameters")
-                    k_param = k_param
-                    i_param = i_param
-                    d_param = d_param
-
             while parent_conn_heat.poll():  # non blocking receive
                 cycle_time, duty_cycle = parent_conn_heat.recv()
 
             while conn.poll():  # POST settings
                 mode, cycle_time, duty_cycle_temp, set_point, set_point_steam, k_param, i_param, d_param, flush_cache = conn.recv()
 
-            pid = PIDController.pidpy(cycle_time, k_param, i_param, d_param)  # init pid
             if readytemp == True:
+                if temp_F < (set_point-20):  #use different PID parameters for turn-on
+                #logger.debug("going into heat up parameters")
+                    k_param_init = 2
+                    i_param_init = 60
+                    d_param_init = 7
+                    pid = PIDController.pidpy(cycle_time, k_param_init, i_param_init, d_param_init)  # init pid
+                if mem.flag_pump_on:
+                    k_param_pump = 90#5.36
+                    i_param_pump = 0#39.9
+                    d_param_pump = 0
+                    pid = PIDController.pidpy(cycle_time, k_param_pump, i_param_pump, d_param_pump)  # init pid
+                else:
+                    pid = PIDController.pidpy(cycle_time, k_param, i_param, d_param)  # init pid                
                 if mode == "auto":
                     duty_cycle = pid.calcPID_reg4(temp_F, set_point, True)
                     #logger.debug("PID set "+str(duty_cycle) + "temp "+ temp_F_pretty + "set Point " + str(set_point))
@@ -562,14 +577,8 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     duty_cycle = 0
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     GPIO.output(gpio_btn_heat_led, GPIO.LOW)
-#                if (not statusQ.full()):    
-#                    statusQ.put([temp_F_str, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param])  # GET request
-
                 elif mode == "manual":
                     duty_cycle = duty_cycle_temp
-   #                 while conn.poll():  # POST settings
-   #                     mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param, flush_cache = conn.recv()
-
                     logger.debug("sending manual cycle: " +str(cycle_time) +" duty: "+ str(duty_cycle))
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     duty_cycle_pid = pid.calcPID_reg4(temp_F, set_point, True) #keep calculating duty cycle for smooth transition when switched to auto
@@ -1027,6 +1036,7 @@ def catchButton(btn):  # GPIO
             mem.brew_connection.send([time_stamp, brew_plan])
             
         elif btn == gpio_btn_brew_pump_sig:
+            now = time.time
             logger.debug("catchButton: Brew pump switched")
             time_stamp=time.time()
             mem.brewTimer_connection.send(time_stamp)
@@ -1038,10 +1048,28 @@ def catchButton(btn):  # GPIO
         elif btn == gpio_btn_steam_switch_sig:
             logger.debug("catchButton: steam/hot water switched")
             time_stamp=time.time()
+            time.sleep(0.1)
+            if GPIO.input(gpio_btn_steam_switch_sig)== GPIO.LOW:
+                GPIO.output(gpio_btn_pump_led, GPIO.LOW)  # this is a bit of a hack because the temp control also regulates the LED but putting it here gives better user experience.
+                logger.debug("Steam Mode OFF")
+                    
+            if GPIO.input(gpio_btn_steam_switch_sig) == GPIO.HIGH:
+                GPIO.output(gpio_btn_pump_led, GPIO.HIGH) 
+                logger.debug("Steam Mode ON")
 
         elif btn == gpio_btn_pwr_switch_sig:
             logger.debug("catchButton: power switched")
             time_stamp=time.time()
+            time.sleep(0.1)
+            if GPIO.input(gpio_btn_pwr_switch_sig)== GPIO.LOW:
+                if param.mode == "off":
+                    GPIO.output(gpio_btn_heat_led, GPIO.HIGH)  # this is a bit of a hack because the temp control also regulates the LED but putting it here gives better user experience.
+                    logger.debug("catchButton:  telling Heat Proc AUTO (ON) ")
+                    tellHeatProc("auto")
+            if GPIO.input(gpio_btn_pwr_switch_sig) == GPIO.HIGH:
+                GPIO.output(gpio_btn_heat_led, GPIO.LOW) 
+                logger.debug("catchButton:  telling Heat Proc OFF")
+                tellHeatProc("off")                
             
 
     except:
@@ -1060,6 +1088,8 @@ def cleanUp():
     logger.info("Shutting down...")
     mem.lcd_connection.send(["iSPRESSO", "Shutting down", 0])
     execfile ('shutdown.py')
+    
+            
 
 if __name__ == '__main__':
     
@@ -1110,10 +1140,10 @@ if __name__ == '__main__':
         
         GPIO.add_event_detect(gpio_btn_heat_sig, GPIO.RISING, callback=catchButton, bouncetime=250)  
         GPIO.add_event_detect(gpio_btn_pump_sig, GPIO.RISING, callback=catchButton, bouncetime=250)  # was RISING, at one point HIGH. who knows
-        GPIO.add_event_detect(gpio_btn_brew_pump_sig, GPIO.BOTH, callback=catchButton, bouncetime=250)
-        GPIO.add_event_detect(gpio_btn_steam_pump_sig, GPIO.BOTH, callback=catchButton, bouncetime=250)
-        GPIO.add_event_detect(gpio_btn_steam_switch_sig, GPIO.BOTH, callback=catchButton, bouncetime=250)
-        GPIO.add_event_detect(gpio_btn_pwr_switch_sig, GPIO.BOTH, callback=catchButton, bouncetime=250)
+        GPIO.add_event_detect(gpio_btn_brew_pump_sig, GPIO.BOTH, callback=catchButton, bouncetime=500)
+        GPIO.add_event_detect(gpio_btn_steam_pump_sig, GPIO.BOTH, callback=catchButton, bouncetime=500)
+        GPIO.add_event_detect(gpio_btn_steam_switch_sig, GPIO.BOTH, callback=catchButton, bouncetime=500)
+        GPIO.add_event_detect(gpio_btn_pwr_switch_sig, GPIO.BOTH, callback=catchButton, bouncetime=500)
 
             
         
