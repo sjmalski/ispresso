@@ -124,6 +124,7 @@ class mem:  # global class
     flag_brewSwitch_on = False
     flag_steamSwitch_on = False
     flag_steam_mode = False
+    flag_pwr_on = False
     
 
 class globalvars(object):
@@ -220,7 +221,7 @@ def gettempProc(global_vars, conn):
     try:
         while (True):
             t = time.time()
-            time.sleep(.5)  # .1+~.83 = ~1.33 seconds
+            time.sleep(.1)  # .1+~.83 = ~1.33 seconds
             num = tempdata()
             elapsed = "%.2f" % (time.time() - t)
             conn.send([num, elapsed])
@@ -324,8 +325,8 @@ def brewTimerProc(brewTimer_child_conn):
     try:
         mem.flag_brewSwitch_on = False
         button_bounce_threshold_secs = 0.5
-        heat_boost_time = 3.5
-        rebound_protect_time = 10
+        heat_boost_time = 4
+        rebound_protect_time = 1
 
         while(True):
             time_button_pushed = brewTimer_child_conn.recv()  # BLOCKS until something shows up
@@ -346,8 +347,9 @@ def brewTimerProc(brewTimer_child_conn):
                     mem.flag_pump_on=True
                     #logger.debug("boost time duty cycle" + str(param.duty_cycle))
                 else:
-                    duty_cycle = 0
-                    tellHeatProc("auto",None, duty_cycle)# back to auto mode
+                    duty_cycle = 85
+                    #tellHeatProc("auto",None, duty_cycle)# back to auto mode
+                    tellHeatProc("manual", None, duty_cycle)
                     
                 if brewTimer_child_conn.poll():  # mem.brew_connection.poll() returns TRUE or FALSE immediately and does NOT block
                     time_button_pushed_again = brewTimer_child_conn.recv()  # get item off the list, check how long since time_button_pushed, against button_bounce_threshold_secs.  If too short, clean up and exit this loop
@@ -558,17 +560,17 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
             if mem.flag_steam_mode == True:
                 set_point = set_point_steam
             if readytemp == True:
-                if temp_F < (set_point-30):  #use different PID parameters for turn-on
+                if temp_F < (set_point-15):  #use different PID parameters for turn-on
                 #logger.debug("going into heat up parameters")
-                    k_param_init = 2  #2.69
-                    i_param_init = 60 #31.92
-                    d_param_init = 70 #7.98
+                    k_param_init = 1.7  #2.69
+                    i_param_init = 0 #31.92
+                    d_param_init = 7.98 #7.98
                     #pid = PIDController.pidpy(cycle_time, k_param_init, i_param_init, d_param_init)  # init pid
                     pid.SetTunings(k_param_init, i_param_init, d_param_init)
-                if mem.flag_pump_on == True:
+                elif mem.flag_pump_on == True:
                     k_param_pump = 90#5.36
                     i_param_pump = 0#39.9
-                    d_param_pump = 0
+                    d_param_pump = 60
                     logger.debug( "flag pump on! yay!")
                     #pid = PIDController.pidpy(cycle_time, k_param_pump, i_param_pump, d_param_pump)  # init pid
                     pid.SetTunings(k_param_pump, i_param_pump, d_param_pump)
@@ -589,7 +591,7 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     #duty_cycle= pid.compute(temp_F, set_point)
                 elif mode == "manual":
                     duty_cycle = duty_cycle_temp
-                    logger.debug("sending manual cycle: " +str(cycle_time) +" duty: "+ str(duty_cycle))
+                    #logger.debug("sending manual cycle: " +str(cycle_time) +" duty: "+ str(duty_cycle))
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     #duty_cycle_pid = pid.calcPID_reg4(temp_F, set_point, True) #keep calculating duty cycle for smooth transition when switched to auto
                     #woulda_duty_cycle = pid.compute(temp_F, set_point)
@@ -1041,11 +1043,12 @@ def catchButton(btn):  # GPIO
                 tellHeatProc("off")
     
         elif btn == gpio_btn_pump_sig:
-            logger.debug("catchButton:  telling Brew Proc (toggle)")
-            time_stamp = time.time()
-            brew_plan = [['Presoak', mem.presoak_time], ['Wait', mem.wait_time], ['Brew', mem.brew_time]]
-            mem.brew_connection.send([time_stamp, brew_plan])
-            
+            if mem.flag_pwr_on == True:
+                logger.debug("catchButton:  telling Brew Proc (toggle)")
+                time_stamp = time.time()
+                brew_plan = [['Presoak', mem.presoak_time], ['Wait', mem.wait_time], ['Brew', mem.brew_time]]
+                mem.brew_connection.send([time_stamp, brew_plan])
+                
         elif btn == gpio_btn_brew_pump_sig:
             now = time.time
             logger.debug("catchButton: Brew pump switched")
@@ -1066,9 +1069,10 @@ def catchButton(btn):  # GPIO
                 mem.flag_steam_mode = False
                     
             if GPIO.input(gpio_btn_steam_switch_sig) == GPIO.HIGH:
-                GPIO.output(gpio_btn_pump_led, GPIO.HIGH) 
-                logger.debug("Steam Mode ON")
-                mem.flag_steam_mode = True
+                if mem.flag_pwr_on == True:
+                    GPIO.output(gpio_btn_pump_led, GPIO.HIGH) 
+                    logger.debug("Steam Mode ON")
+                    mem.flag_steam_mode = True
 
         elif btn == gpio_btn_pwr_switch_sig:
             logger.debug("catchButton: power switched")
@@ -1079,10 +1083,12 @@ def catchButton(btn):  # GPIO
                     GPIO.output(gpio_btn_heat_led, GPIO.HIGH)  # this is a bit of a hack because the temp control also regulates the LED but putting it here gives better user experience.
                     logger.debug("catchButton:  telling Heat Proc AUTO (ON) ")
                     tellHeatProc("auto")
+                    mem.flag_pwr_on = True
             if GPIO.input(gpio_btn_pwr_switch_sig) == GPIO.HIGH:
                 GPIO.output(gpio_btn_heat_led, GPIO.LOW) 
                 logger.debug("catchButton:  telling Heat Proc OFF")
-                tellHeatProc("off")                
+                tellHeatProc("off")
+                mem.flag_pwr_on = False
             
 
     except:
