@@ -81,7 +81,7 @@ class PID:
             self.ITerm = self.outMax
         elif self.ITerm < self.outMin:
             self.ITerm = self.outMin
-    def SetMode(self,Mode):
+    def SetMode(self,Mode, Output = 0):
         newAuto = (Mode == "auto")
         if newAuto and not self.inAuto:
             #we just went from manual to Auto
