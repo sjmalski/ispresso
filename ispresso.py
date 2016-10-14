@@ -190,7 +190,7 @@ class advanced:
                 self.mode = datalistkey[1]
             if datalistkey[0] == "setpoint":
                 self.set_point = float(datalistkey[1])
-            if datalistkey[0] == "set_point_steam":
+            if datalistkey[0] == "setpointsteam":
                 self.set_point_steam = float(datalistkey[1])
             if datalistkey[0] == "dutycycle":
                 self.duty_cycle = float(datalistkey[1])
@@ -213,7 +213,7 @@ class advanced:
         param.d_param = self.d_param
         settings.save()
 
-        web.ctx.globals.parent_conn.send([self.mode, self.cycle_time, self.duty_cycle, self.set_point, self.set_point_steam,  self.k_param, self.i_param, self.d_param, False. param.steam_flag, param.brew_flag])  
+        web.ctx.globals.parent_conn.send([self.mode, self.cycle_time, self.duty_cycle, self.set_point, self.set_point_steam, self.k_param, self.i_param, self.d_param, False, param.steam_flag, param.brew_flag])  
         #mono and sensor for single color
 def gettempProc(global_vars, conn):
     p = current_process()
@@ -344,7 +344,7 @@ def brewTimerProc(brewTimer_child_conn):
                 message = ("Brewing %.2f s" % brew_time)
                 mem.lcd_connection.send([None, message, 0])
                 if brew_time < heat_boost_time:
-                    duty_cycle=100
+                    duty_cycle=90
                     tellHeatProc("manual",None,duty_cycle)#turn heater on manual 100# duty cycle to help out the PID process
                     
                     #logger.debug("boost time duty cycle" + str(param.duty_cycle))
@@ -564,24 +564,23 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                 #logger.debug("steam mode activated in tempcontrol")
             if readytemp == True:
                 if temp_F < (set_point-15):  #use different PID parameters for turn-on
-                #logger.debug("going into heat up parameters")
                     k_param_init = 1.7  #2.69
                     i_param_init = 0 #31.92
                     d_param_init = 7.98 #7.98
                     #pid = PIDController.pidpy(cycle_time, k_param_init, i_param_init, d_param_init)  # init pid
                     pid.SetTunings(k_param_init, i_param_init, d_param_init)
                 elif brew_flag == True:
-                    k_param_pump = 75#5.36
-                    i_param_pump = 0.01#39.9
-                    d_param_pump = 300
-                    #logger.debug( "flag pump on! yay!")
+                    k_param_pump = 3#5.36
+                    i_param_pump = 0.001#39.9
+                    d_param_pump = 20
                     #pid = PIDController.pidpy(cycle_time, k_param_pump, i_param_pump, d_param_pump)  # init pid
                     pid.SetTunings(k_param_pump, i_param_pump, d_param_pump)
                 else:
                     #pid = PIDController.pidpycycle_time, k_param_pump, i_param_pump, d_param_pump(cycle_time, k_param, i_param, d_param)  # init pid
                     pid.SetTunings(k_param, i_param, d_param)
-                pid.SetMode(mode)
+                #pid.SetMode(mode)
                 if mode == "auto":
+                    pid.SetMode(mode,duty_cycle)
                     #duty_cycle = pid.calcPID_reg4(temp_F, set_point, True)
                     duty_cycle = pid.compute(temp_F, set_point)
                     #logger.debug("PID set "+str(duty_cycle) + "temp "+ temp_F_pretty + "set Point " + str(set_point))
@@ -592,10 +591,14 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     parent_conn_heat.send([cycle_time, duty_cycle])
                     GPIO.output(gpio_btn_heat_led, GPIO.LOW)
                     #duty_cycle= pid.compute(temp_F, set_point)
+                    pid.SetMode(mode, duty_cycle)
+                    pid.compute(temp_F, set_point)
                 elif mode == "manual":
                     duty_cycle = duty_cycle_temp
                     #logger.debug("sending manual cycle: " +str(cycle_time) +" duty: "+ str(duty_cycle))
                     parent_conn_heat.send([cycle_time, duty_cycle])
+                    pid.SetMode(mode,duty_cycle)
+                    #pid.compute(temp_F, set_point)
                     #duty_cycle_pid = pid.calcPID_reg4(temp_F, set_point, True) #keep calculating duty cycle for smooth transition when switched to auto
                     #woulda_duty_cycle = pid.compute(temp_F, set_point)
                 if (not statusQ.full()):    
@@ -603,11 +606,11 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
 
                 readytemp == False   
                 
-            while parent_conn_heat.poll():  # non blocking receive
-                cycle_time, duty_cycle = parent_conn_heat.recv()
+            #while parent_conn_heat.poll():  # non blocking receive
+                #cycle_time, duty_cycle = parent_conn_heat.recv()
                      
-            while conn.poll():  # POST settings
-                mode, cycle_time, duty_cycle_temp, set_point, set_point_steam, k_param, i_param, d_param, flush_cache, steam_flag, brew_flag= conn.recv()
+            #while conn.poll():  # POST settings
+                #mode, cycle_time, duty_cycle_temp, set_point, set_point_steam, k_param, i_param, d_param, flush_cache, steam_flag, brew_flag= conn.recv()
             
             if flush_cache:
                 mem.cache_day = None  # this should force cache flush   

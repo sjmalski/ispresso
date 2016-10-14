@@ -81,10 +81,13 @@ class PID:
             self.ITerm = self.outMax
         elif self.ITerm < self.outMin:
             self.ITerm = self.outMin
-    def SetMode(self,Mode, Output = 0):
+    def SetMode(self, Mode, output = None):
         newAuto = (Mode == "auto")
+        #if output is not None:
+            #self.Output = output
         if newAuto and not self.inAuto:
             #we just went from manual to Auto
+            self.Output = output
             self.Initialize()
         self.inAuto = newAuto
     def Initialize(self):

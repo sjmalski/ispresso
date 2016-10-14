@@ -284,6 +284,25 @@ $def with (mode, set_point, set_point_steam, duty_cycle, cycle_time, k_param, i_
 					        }
 					        
 					    });
+                                            jQuery("#heatplot").bind("plothover", function (event, pos, item) {	
+					    	if (item) {
+					        	if (previousPoint != item.dataIndex) {
+					            	previousPoint = item.dataIndex;
+					                    
+					                jQuery("#tooltip").remove();
+					                var x = item.datapoint[0].toFixed(2),
+                        				y = item.datapoint[1].toFixed(2);
+					                    
+					                showTooltip(item.pageX, item.pageY,
+					                            "(" + x + ", " + y + ")");
+					                }
+					            }
+					        else {
+					            jQuery("#tooltip").remove();
+					            previousPoint = null;            
+					        }
+					        
+					    });
 					    
 					    jQuery("#sendcommand").click(function() {
 //			            jQuery('#controlPanelForm').submit(function() {
@@ -356,6 +375,9 @@ $def with (mode, set_point, set_point_steam, duty_cycle, cycle_time, k_param, i_
 						  }, 
 						  yaxis: { min: 0, max: 100 },
 						  xaxis: { show: true },
+                                                  grid: {
+                                                      hoverable: true
+                                                      },
 						  selection: { mode: "x" }
 						}; 
 
@@ -499,7 +521,7 @@ $def with (mode, set_point, set_point_steam, duty_cycle, cycle_time, k_param, i_
 	    				<td>secs</td>
    	    			</tr>
 				<tr>
-		    			<td align=right>Set Point: </td>
+		    			<td align=right>Set Point Steam: </td>
 		    			<td>
 		    				<input type="text" name="setpointsteam"  maxlength = "4" size ="4" value=$set_point_steam style="text-align: right;"/> 
 		    			</td>
