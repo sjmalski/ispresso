@@ -547,6 +547,8 @@ $def with (mode, set_point, set_point_steam, duty_cycle, cycle_time, k_param, i_
 		    	<div id="heatplot" align=left  style="width:600px;height:200px;">
 		    	</div>
 	    	    <br/>
+                        <button id = "stop">Stop Capture</button> 
+			<button id = "restart">Restart Capture  </button> 
 	    		Window Size: <input id="windowSizeText" type="text" name="windowSize"  maxlength = "6" size ="6" value=1000000 style="text-align: right;"/> 
 			<br>
 			<h4>Steps for PID Tuning (Ziegler-Nichols Open-Loop):</h4>
@@ -556,8 +558,7 @@ $def with (mode, set_point, set_point_steam, duty_cycle, cycle_time, k_param, i_
 				<li>Turn Temp Controller off and Stop data capture</li>
 				<li>Highlight Sloped Line after Dead Time on Plot</li>
 			</ol>
-			<button id = "stop">Stop Capture</button> 
-			<button id = "restart">Restart Capture  </button> 
+
 			<!-- <button id = "calcpid">Calculate PID</button> -->
 			<br><br>
 			
