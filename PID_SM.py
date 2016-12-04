@@ -51,6 +51,11 @@ class PID:
             self.lastInput = self.Input
             self.lastTime = now
 
+            #emergency cutoff specific to thermoblock overheating
+            if self.Input > (self.Setpoint+2):
+                self.Output = 0
+                self.ITerm = 0
+
             #logger.debug( "computing output: " + str(self.Output) + " error: " + str(error)
             #             + " K, i, D: " + str(self.kp)+" "+ str(self.ki) + " " + str(self.kd)
             #              + " Iterm: " + str(self.ITerm))
@@ -81,7 +86,7 @@ class PID:
             self.ITerm = self.outMax
         elif self.ITerm < self.outMin:
             self.ITerm = self.outMin
-    def SetMode(self, Mode, output = None):
+    def SetMode(self, Mode, output = 0):
         newAuto = (Mode == "auto")
         #if output is not None:
             #self.Output = output
