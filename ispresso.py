@@ -404,67 +404,6 @@ def brewControlProc(brew_child_conn):
         GPIO.output(gpio_btn_pump_led, GPIO.LOW)
 
 
-def cloudControlProc(global_vars, brew_conn):
-    p = current_process()
-    logger = logging.getLogger('ispresso').getChild("cloudControlProc")
-    logger.info('Starting:' + p.name + ":" + str(p.pid))
-
-    last_cmd_time = time.time()
-    secs_cmd_interval = 1.25
-    echoUserId = ""
-
-    # TODO:  fetch userId from file on startup - also means we have to bounce the service when set from /echo POST
-    try:
-        with open("echo.json") as readFile:
-            my_settings = json.load(readFile)
-            echoUserId = my_settings["userId"]
-    except (IOError, ValueError):
-        logger.debug("Killing cloud process as we don't have a valid echoUserId")
-        return False    # EXIT if we don't have a valid echoUserId - no sense racking up an AWS bill if we don't need to!
-
-    if not setup.check_connected():
-        logger.debug("Killing cloud process as we are not connected to internet")
-        return False            # not going to keep this process running if we are not connected to internet.
-    if echoUserId == "":
-        logger.debug("Killing cloud process as we still don't have a valid echoUserId")
-        return False
-
-    logger.debug("Starting main loop with echoUserId = " + echoUserId)
-    while True:
-        time.sleep(0.1)
-        now_time = time.time()
-        if now_time - last_cmd_time > secs_cmd_interval:
-            last_cmd_time = now_time
-
-            try:
-                temp = global_vars.temp
-                url = 'https://ltqynxd6pc.execute-api.us-east-1.amazonaws.com/prod/ispresso-cloud-status-command'                   # post status to AWS, check for a command.  Delete command from AWS.  Execute command here
-                payload = {'echoUserId': echoUserId, 'temp':  temp, 'temp_unit' : ' Fahrenheit'}
-                payload = json.dumps(payload)
-                headers = {'x-api-key': 'FqwN8fidPq7vvPTPcsOHd2V0BtAd17768Kq8UPM5'}
-                resp = requests.post(url, data=payload, headers=headers)
-                data = json.loads(resp.text)
-    
-                if len(data.keys()) > 0: #[0] == "Item":
-                    logger.debug("Received payload from AWS: " + str(data))
-                    command = data["Item"]["command"]
-                    currenttime = data["Item"]["currenttime"]
-                    commandtime = data["Item"]["datetime"]
-                    logger.debug("command = " + command)
-                    if command == "brew":
-                        # check to see if not too much time has passed from command to current time
-                        min_diff = round((currenttime - commandtime) / 60000) ;    
-                        if min_diff > 1:  
-                            logger.error("Command is " + str(min_diff) + " minutes old! ") 
-                        else:     
-                            time_stamp = time.time()
-                            brew_plan = [['Presoak', mem.presoak_time], ['Wait', mem.wait_time], ['Brew', mem.brew_time]]
-                            logger.debug("Caught POST, Pump button.  brewing ... " + str(brew_plan))
-                            brew_conn.send([time_stamp, brew_plan])
-            except:
-                exc_type, exc_value, exc_traceback = sys.exc_info()
-                logger.error(''.join('!! ' + line for line in traceback.format_exception(exc_type, exc_value, exc_traceback)))
-
 def brewTimerProc(brewTimer_child_conn):
     p = current_process()
     logger.info('Starting:' + p.name + ":" + str(p.pid))
@@ -596,12 +535,11 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                 if not brew_flag:
                     if steam_flag == True and mode == "auto":
                         mem.lcd_connection.send([None, 'Mode: Steam', 0])
+                        set_point = set_point_steam
                     elif (mode == "auto" or mode == "manual"):
                         mem.lcd_connection.send([None, 'Mode: Brew', 0])
                     else:
                         mem.lcd_connection.send([None, 'Mode: OFF',0])
-                if steam_flag == True:
-                    set_point = set_point_steam
                 if readytemp == True:
                     if temp_F < (set_point-15):  #use different PID parameters for turn-on
                         k_param_init = 1.7
@@ -624,8 +562,6 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     else:
                         pid.SetTunings(k_param, i_param, d_param)
 
-
-
                     if mode == "auto":
                         pid.SetMode(mode,duty_cycle)
                         duty_cycle = pid.compute(temp_F, set_point)
@@ -635,15 +571,11 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                         duty_cycle = 0
                         parent_conn_heat.send([cycle_time, duty_cycle])
                         GPIO.output(gpio_btn_heat_led, GPIO.LOW)
-                        #duty_cycle= pid.compute(temp_F, set_point)
                         pid.SetMode(mode, duty_cycle)
-                        #pid.compute(temp_F, set_point)
                     elif mode == "manual":
                         duty_cycle = duty_cycle_temp
-                        #logger.debug("sending manual cycle: " +str(cycle_time) +" duty: "+ str(duty_cycle))
                         parent_conn_heat.send([cycle_time, duty_cycle])
                         pid.SetMode(mode,duty_cycle)
-                        #pid.compute(temp_F, set_point)
                     if was_brew and not brew_flag:
                         #save to array for Dan's code
                         if max(brew_data['times'])>15:
@@ -656,13 +588,10 @@ def tempControlProc(global_vars, mode, cycle_time, duty_cycle, set_point, set_po
                     if (not statusQ.full()):    
                         statusQ.put([temp_F_str, elapsed, mode, cycle_time, duty_cycle, set_point, set_point_steam, k_param, i_param, d_param,
                                      param.brew_k_param, param.brew_i_param, param.brew_d_param,])  # GET request
-
-                    readytemp == False   
-                    
+                    readytemp == False                      
                 if flush_cache:
                     mem.cache_day = None  # this should force cache flush   
                     flush_cache = False 
-
                 mode = scheduled_mode(mode)  # check to see if scheduler should fire on or off
 
     except:
@@ -686,12 +615,11 @@ class brewdata:
     def __init__(self):
         pass
     def GET(self):
-        #logger.debug("got a get request, mydata is :" + param.brewdata)
         return json.dumps(param.brewdata)
     def POST(self):
         data = web.data()  # web.input gives back a Storage < > thing
         param.brewdata = json.loads(data)
-        #logger.debug( param.brewdata)
+        
 class getstatus:
 
     def __init__(self):
@@ -724,44 +652,6 @@ class getstatus:
                           "brew_k_param" : brew_k_param, "brew_i_param" : brew_i_param, "brew_d_param" : brew_d_param, "pump" : mem.flag_pump_on})          
 
         return out["temp"]
-
-class echo:
-    def GET(self):
-        mystring = "{}"
-        try:
-            with open("echo.json") as f:
-                filecontents = json.load(f)
-                mystring = json.dumps(filecontents)
-        except (IOError, ValueError):
-            open("echo.json", 'a').close()
-        return render.echo(mystring)  # a JSON object (string) at this point
-
-    def POST(self):
-        data = web.data()  # web.input gives back a Storage < > thing
-        mydata = json.loads(data)
-        echoUserId = ""
-
-        try:
-            for datalistkey in mydata:
-                logger.debug("datalistkey = " + str(datalistkey))
-                if datalistkey == "userId":
-                    echoUserId = mydata[datalistkey]
-                    logger.debug("Echo userId changing to " + str(mydata[datalistkey]))
-            with open("echo.json") as saveFile:
-                try:
-                    my_settings = json.load(saveFile)
-                except ValueError:
-                    my_settings = json.loads("{}")
-                my_settings['userId'] = echoUserId
-            logger.debug("Echo config updating:  " + str(mydata))
-            with open("echo.json", "wb") as output_file:
-                json.dump(my_settings, output_file)    
-            return json.dumps("OK")
-
-        except:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            logger.error(''.join('!! ' + line for line in traceback.format_exception(exc_type, exc_value, exc_traceback)))
-
 
 
 class settings:
@@ -832,9 +722,25 @@ class settings:
 
 
 class ispresso:
+    def __init__(self):
+        self.mode = param.mode
+        self.cycle_time = param.cycle_time
+        self.duty_cycle = param.duty_cycle
+        self.set_point = param.set_point
+        self.set_point_steam = param.set_point_steam
+        self.k_param = param.k_param
+        self.i_param = param.i_param
+        self.d_param = param.d_param
+        self.brew_k_param = param.brew_k_param
+        self.brew_i_param = param.brew_i_param
+        self.brew_d_param = param.brew_d_param
 
     def GET(self):
-        return render.ispresso()
+        #return render.ispresso()
+    
+        return render.ispresso(self.mode, self.set_point, self.set_point_steam, self.duty_cycle, self.cycle_time,
+                               self.k_param, self.i_param, self.d_param, self.brew_k_param, self.brew_i_param, self.brew_d_param)
+        
 
     def POST(self):
         op = ""

@@ -1,1 +1,1 @@
-{"i_value": 0.05, "p_value": 5.0, "brewSecs": 5, "brew_p_value": 1.0, "waitSecs": 2, "temp": 197.0, "brew_i_value": 0.0001, "stemp": 258, "duty_cycle": 0, "brew_d_value": 150.0, "soakSecs": 2, "d_value": 75.0}
+{"i_value": 0.05, "p_value": 5.0, "brewSecs": 5, "brew_p_value": 5.0, "waitSecs": 2, "temp": 197.0, "brew_i_value": 0.0001, "stemp": 258.0, "duty_cycle": 0, "brew_d_value": 200.0, "soakSecs": 2, "d_value": 75.0}
